@@ -3,22 +3,36 @@ package main
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 )
 
 const (
-	HTTPv1           = "HTTP/1.1"
-	StatusOK         = "200 OK"
-	StatusNotFound   = "404 Not Found"
-	StatusBadGateway = "502 Bad Gateway"
+	HTTPv1        = "HTTP/1.1"
+	ContentType   = "Content-Type"
+	ContentLength = "Content-Length"
+)
+
+const (
+	StatusOK         = 200
+	StatusNotFound   = 404
+	StatusBadGateway = 502
 )
 
 type Request struct {
-	method  string
-	target  string
-	version string
-	headers map[string]string
+	Method  string
+	URI     *url.URL
+	Version string
+	Headers map[string]string
+	Body    []byte
+}
+
+type Response struct {
+	Status  int
+	Headers map[string]string
+	Body    []byte
 }
 
 func main() {
@@ -54,20 +68,32 @@ func serve(c net.Conn) error {
 	n, err := c.Read(buf)
 	if err != nil {
 		fmt.Println("Error reading:", err.Error())
-		return writeConn(c, StatusBadGateway)
+		return writeConn(c, Response{Status: StatusBadGateway, Body: []byte(err.Error())})
 	}
 	req, err := parseRequest(string(buf[:n]))
 	if err != nil {
 		fmt.Println("Error parsing request:", err.Error())
-		return writeConn(c, StatusBadGateway)
+		return writeConn(c, Response{Status: StatusBadGateway, Body: []byte(err.Error())})
 	}
 
-	status := StatusOK
-	if req.target != "/" {
+	var (
 		status = StatusNotFound
+		body   []byte
+		header = make(map[string]string)
+	)
+
+	if req.URI.Path == "/" {
+		status = StatusOK
+	}
+	if path := strings.Split(req.URI.Path, "/"); len(path) == 3 && path[1] == "echo" {
+		status = StatusOK
+		body = []byte(path[2])
 	}
 
-	return writeConn(c, status)
+	header[ContentType] = "text/plain"
+	header[ContentLength] = strconv.Itoa(len(body))
+
+	return writeConn(c, Response{Status: status, Body: body, Headers: header})
 }
 
 func parseRequest(req string) (*Request, error) {
@@ -80,15 +106,23 @@ func parseRequest(req string) (*Request, error) {
 	if len(reqLine) != 3 {
 		return nil, fmt.Errorf("invalid request line parts: %d", len(reqLine))
 	}
-	method := reqLine[0]
-	target := reqLine[1]
-	version := reqLine[2]
 
-	headers := map[string]string{}
+	uri, err := url.Parse(reqLine[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid request line url: %s", reqLine[1])
+	}
+
+	var (
+		headers = make(map[string]string)
+		body    = make([]string, 0)
+	)
 	if len(parts) > 1 {
-		for _, header := range parts[1:] {
+		for i, header := range parts[1:] {
 			if header == "" {
-				continue
+				if i+2 < len(parts) {
+					body = parts[i+2:]
+				}
+				break
 			}
 			headerParts := strings.SplitN(header, ":", 2)
 			if len(headerParts) != 2 {
@@ -98,19 +132,53 @@ func parseRequest(req string) (*Request, error) {
 		}
 	}
 
-	return &Request{method, target, version, headers}, nil
+	return &Request{
+		Method:  reqLine[0],
+		URI:     uri,
+		Version: reqLine[2],
+		Headers: headers,
+		Body:    []byte(strings.Join(body, "\r\n")),
+	}, nil
 }
 
-func writeConn(conn net.Conn, status string) error {
-	msg := strings.Builder{}
-	msg.WriteString(HTTPv1)
-	msg.WriteString(" ")
-	msg.WriteString(status)
-	msg.WriteString("\r\n\r\n")
+func writeConn(conn net.Conn, resp Response) error {
+	b := strings.Builder{}
+	b.WriteString(HTTPv1)
+	b.WriteString(" ")
+	b.WriteString(strconv.Itoa(resp.Status))
+	b.WriteString(" ")
+	b.WriteString(StatusText(resp.Status))
+	b.WriteString("\r\n")
 
-	_, err := conn.Write([]byte(msg.String()))
+	for k, v := range resp.Headers {
+		b.WriteString(k)
+		b.WriteString(": ")
+		b.WriteString(v)
+		b.WriteString("\r\n")
+	}
+
+	b.WriteString("\r\n")
+	if len(resp.Body) != 0 {
+		b.Write(resp.Body)
+		b.WriteString("\r\n")
+	}
+
+	_, err := conn.Write([]byte(b.String()))
 	if err != nil {
 		return fmt.Errorf("writing to connection: %w", err)
 	}
 	return nil
+}
+
+func StatusText(code int) string {
+	switch code {
+	case StatusOK:
+		return "OK"
+	case StatusNotFound:
+		return "Not Found"
+	case StatusBadGateway:
+		return "Bad Gateway"
+	default:
+		return ""
+	}
 }
