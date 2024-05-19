@@ -17,6 +17,8 @@ const (
 	ContentType   = "Content-Type"
 	ContentLength = "Content-Length"
 	UserAgent     = "User-Agent"
+	PlainText     = "text/plain"
+	OctetStream   = "application/octet-stream"
 )
 
 const (
@@ -96,13 +98,18 @@ func serve(c net.Conn) error {
 	switch {
 	case req.URI.Path == "/":
 		status = StatusOK
+		header.Set(ContentType, PlainText)
+
 	case req.URI.Path == "/user-agent":
 		status = StatusOK
 		body = []byte(req.Headers.Get(UserAgent))
+		header.Set(ContentType, PlainText)
+
 	case strings.HasPrefix(req.URI.Path, "/echo"):
 		path := strings.Split(req.URI.Path, "/")
 		status = StatusOK
 		body = []byte(path[2])
+		header.Set(ContentType, PlainText)
 
 	case strings.HasPrefix(req.URI.Path, "/files"):
 		path := strings.Split(req.URI.Path, "/")
@@ -111,12 +118,12 @@ func serve(c net.Conn) error {
 			fmt.Println("Error getting file:", err.Error())
 			return writeConn(c, Response{Status: StatusBadGateway})
 		}
+		header.Set(ContentType, OctetStream)
 
 	default:
 		status = StatusNotFound
 	}
 
-	header.Set(ContentType, "text/plain")
 	header.Set(ContentLength, strconv.Itoa(len(body)))
 
 	return writeConn(c, Response{Status: status, Body: body, Headers: header})
