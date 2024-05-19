@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/url"
 	"os"
@@ -78,22 +80,32 @@ func serve(c net.Conn) error {
 	}
 
 	var (
-		status = StatusNotFound
+		status int
 		body   []byte
 		header = make(Header)
 	)
 
-	switch req.URI.Path {
-	case "/":
+	switch {
+	case req.URI.Path == "/":
 		status = StatusOK
-	case "/user-agent":
+	case req.URI.Path == "/user-agent":
 		status = StatusOK
 		body = []byte(req.Headers.Get(UserAgent))
-	}
-
-	if path := strings.Split(req.URI.Path, "/"); len(path) == 3 && path[1] == "echo" {
+	case strings.HasPrefix(req.URI.Path, "/echo"):
+		path := strings.Split(req.URI.Path, "/")
 		status = StatusOK
 		body = []byte(path[2])
+
+	case strings.HasPrefix(req.URI.Path, "/files"):
+		path := strings.Split(req.URI.Path, "/")
+		body, status, err = getFile(path)
+		if err != nil {
+			fmt.Println("Error getting file:", err.Error())
+			return writeConn(c, Response{Status: StatusBadGateway})
+		}
+
+	default:
+		status = StatusNotFound
 	}
 
 	header.Set(ContentType, "text/plain")
@@ -187,4 +199,22 @@ func StatusText(code int) string {
 	default:
 		return ""
 	}
+}
+
+func getFile(path []string) ([]byte, int, error) {
+	if len(path) != 3 {
+		return nil, StatusNotFound, nil
+	}
+
+	b, err := os.ReadFile(path[2])
+	if err != nil {
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil, StatusNotFound, nil
+		default:
+			return nil, StatusBadGateway, fmt.Errorf("readng file file: %w", err)
+		}
+	}
+
+	return b, StatusOK, nil
 }
