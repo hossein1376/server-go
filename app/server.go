@@ -22,7 +22,14 @@ const (
 )
 
 const (
+	MethodGet  = "GET"
+	MethodPost = "POST"
+)
+
+const (
 	StatusOK         = 200
+	StatusCreated    = 201
+	StatusBadRequest = 400
 	StatusNotFound   = 404
 	StatusBadGateway = 502
 )
@@ -77,7 +84,7 @@ func main() {
 func serve(c net.Conn) error {
 	defer c.Close()
 
-	buf := make([]byte, 128)
+	buf := make([]byte, 1024)
 	n, err := c.Read(buf)
 	if err != nil {
 		fmt.Println("Error reading:", err.Error())
@@ -113,18 +120,34 @@ func serve(c net.Conn) error {
 
 	case strings.HasPrefix(req.URI.Path, "/files"):
 		path := strings.Split(req.URI.Path, "/")
-		body, status, err = getFile(path)
-		if err != nil {
-			fmt.Println("Error getting file:", err.Error())
-			return writeConn(c, Response{Status: StatusBadGateway})
+		switch req.Method {
+		case MethodGet:
+			body, status, err = getFile(path)
+			if err != nil {
+				fmt.Println("Error getting file:", err.Error())
+				return writeConn(c, Response{Status: StatusBadGateway})
+			}
+			header.Set(ContentType, OctetStream)
+
+		case MethodPost:
+			if len(path) != 3 {
+				return writeConn(c, Response{Status: StatusBadRequest})
+			}
+			err = postFile(path[2], req.Body)
+			if err != nil {
+				fmt.Println("Error posting file:", err.Error())
+				return writeConn(c, Response{Status: StatusBadGateway})
+			}
+			status = StatusCreated
 		}
-		header.Set(ContentType, OctetStream)
 
 	default:
 		status = StatusNotFound
 	}
 
-	header.Set(ContentLength, strconv.Itoa(len(body)))
+	if length := len(body); length != 0 {
+		header.Set(ContentLength, strconv.Itoa(len(body)))
+	}
 
 	return writeConn(c, Response{Status: status, Body: body, Headers: header})
 }
@@ -207,6 +230,10 @@ func StatusText(code int) string {
 	switch code {
 	case StatusOK:
 		return "OK"
+	case StatusCreated:
+		return "Created"
+	case StatusBadRequest:
+		return "Bad Request"
 	case StatusNotFound:
 		return "Not Found"
 	case StatusBadGateway:
@@ -232,4 +259,19 @@ func getFile(path []string) ([]byte, int, error) {
 	}
 
 	return b, StatusOK, nil
+}
+
+func postFile(name string, body []byte) error {
+	f, err := os.Create(baseDir + "/" + name)
+	if err != nil {
+		return fmt.Errorf("creating file: %w", err)
+	}
+	defer f.Close()
+
+	_, err = f.Write(body)
+	if err != nil {
+		return fmt.Errorf("writing to file: %w", err)
+	}
+
+	return nil
 }
