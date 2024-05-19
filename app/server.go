@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io/fs"
 	"net"
@@ -24,6 +25,10 @@ const (
 	StatusBadGateway = 502
 )
 
+var (
+	baseDir string
+)
+
 type Request struct {
 	Method  string
 	URI     *url.URL
@@ -41,6 +46,9 @@ type Response struct {
 func main() {
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
+
+	flag.StringVar(&baseDir, "directory", ".", "Directory to serve files from")
+	flag.Parse()
 
 	l, err := net.Listen("tcp", "0.0.0.0:4221")
 	if err != nil {
@@ -206,7 +214,7 @@ func getFile(path []string) ([]byte, int, error) {
 		return nil, StatusNotFound, nil
 	}
 
-	b, err := os.ReadFile(path[2])
+	b, err := os.ReadFile(baseDir + path[2])
 	if err != nil {
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
