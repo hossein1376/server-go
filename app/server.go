@@ -13,6 +13,7 @@ const (
 	HTTPv1        = "HTTP/1.1"
 	ContentType   = "Content-Type"
 	ContentLength = "Content-Length"
+	UserAgent     = "User-Agent"
 )
 
 const (
@@ -25,13 +26,13 @@ type Request struct {
 	Method  string
 	URI     *url.URL
 	Version string
-	Headers map[string]string
+	Headers Header
 	Body    []byte
 }
 
 type Response struct {
 	Status  int
-	Headers map[string]string
+	Headers Header
 	Body    []byte
 }
 
@@ -79,19 +80,24 @@ func serve(c net.Conn) error {
 	var (
 		status = StatusNotFound
 		body   []byte
-		header = make(map[string]string)
+		header = make(Header)
 	)
 
-	if req.URI.Path == "/" {
+	switch req.URI.Path {
+	case "/":
 		status = StatusOK
+	case "/user-agent":
+		status = StatusOK
+		body = []byte(req.Headers.Get(UserAgent))
 	}
+
 	if path := strings.Split(req.URI.Path, "/"); len(path) == 3 && path[1] == "echo" {
 		status = StatusOK
 		body = []byte(path[2])
 	}
 
-	header[ContentType] = "text/plain"
-	header[ContentLength] = strconv.Itoa(len(body))
+	header.Set(ContentType, "text/plain")
+	header.Set(ContentLength, strconv.Itoa(len(body)))
 
 	return writeConn(c, Response{Status: status, Body: body, Headers: header})
 }
@@ -128,7 +134,7 @@ func parseRequest(req string) (*Request, error) {
 			if len(headerParts) != 2 {
 				return nil, fmt.Errorf("invalid header line parts: %d", len(headerParts))
 			}
-			headers[headerParts[0]] = strings.TrimLeft(headerParts[1], " ")
+			headers[strings.ToLower(headerParts[0])] = strings.TrimLeft(headerParts[1], " ")
 		}
 	}
 
