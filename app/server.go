@@ -120,8 +120,7 @@ func serve(c net.Conn) error {
 		status = StatusOK
 		body = []byte(path[2])
 		header.Set(ContentType, PlainText)
-		encoding := req.Headers.Get(AcceptEncoding)
-		if encoding == EncodingGZip {
+		if isGZipInHeader(req.Headers) {
 			header.Set(ContentEncoding, EncodingGZip)
 		}
 
@@ -281,4 +280,17 @@ func postFile(name string, body []byte) error {
 	}
 
 	return nil
+}
+
+func isGZipInHeader(header Header) bool {
+	encoding := header.Get(AcceptEncoding)
+	if encoding == "" {
+		return false
+	}
+	for _, e := range strings.Split(encoding, ", ") {
+		if e == EncodingGZip {
+			return true
+		}
+	}
+	return false
 }
