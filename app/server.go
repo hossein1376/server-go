@@ -13,12 +13,15 @@ import (
 )
 
 const (
-	HTTPv1        = "HTTP/1.1"
-	ContentType   = "Content-Type"
-	ContentLength = "Content-Length"
-	UserAgent     = "User-Agent"
-	PlainText     = "text/plain"
-	OctetStream   = "application/octet-stream"
+	HTTPv1          = "HTTP/1.1"
+	ContentType     = "Content-Type"
+	ContentLength   = "Content-Length"
+	UserAgent       = "User-Agent"
+	AcceptEncoding  = "Accept-Encoding"
+	ContentEncoding = "Content-Encoding"
+	EncodingGZip    = "gzip"
+	PlainText       = "text/plain"
+	OctetStream     = "application/octet-stream"
 )
 
 const (
@@ -117,6 +120,10 @@ func serve(c net.Conn) error {
 		status = StatusOK
 		body = []byte(path[2])
 		header.Set(ContentType, PlainText)
+		encoding := req.Headers.Get(AcceptEncoding)
+		if encoding == EncodingGZip {
+			header.Set(ContentEncoding, EncodingGZip)
+		}
 
 	case strings.HasPrefix(req.URI.Path, "/files"):
 		path := strings.Split(req.URI.Path, "/")
