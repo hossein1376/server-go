@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"errors"
 	"flag"
 	"fmt"
@@ -118,10 +120,23 @@ func serve(c net.Conn) error {
 	case strings.HasPrefix(req.URI.Path, "/echo"):
 		path := strings.Split(req.URI.Path, "/")
 		status = StatusOK
-		body = []byte(path[2])
 		header.Set(ContentType, PlainText)
 		if isGZipInHeader(req.Headers) {
 			header.Set(ContentEncoding, EncodingGZip)
+			var b bytes.Buffer
+			gz := gzip.NewWriter(&b)
+			if _, err = gz.Write([]byte(path[2])); err != nil {
+				fmt.Println("Error compressing string:", err.Error())
+				return writeConn(c, Response{Status: StatusBadGateway})
+			}
+			err = gz.Close()
+			if err != nil {
+				fmt.Println("Error closing gzip writer:", err.Error())
+				return writeConn(c, Response{Status: StatusBadGateway})
+			}
+			body = b.Bytes()
+		} else {
+			body = []byte(path[2])
 		}
 
 	case strings.HasPrefix(req.URI.Path, "/files"):
